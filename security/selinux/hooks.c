@@ -147,7 +147,15 @@ static int __init enforcing_setup(char *str)
 {
 	unsigned long enforcing;
 	if (!strict_strtoul(str, 0, &enforcing))
+#if defined(SELINUX_ALWAYS_ENFORCE) || \
+	defined(SELINUX_DEFAULT_ENFORCE)
+		selinux_enforcing = 1;
+#elif defined(SELINUX_ALWAYS_PERMISSIVE) || \
+	  defined(SELINUX_DEFAULT_PERMISSIVE)
+		selinux_enforcing = 0;
+#else
 		selinux_enforcing = enforcing ? 1 : 0;
+#endif
 	return 1;
 }
 __setup("enforcing=", enforcing_setup);
@@ -160,7 +168,14 @@ static int __init selinux_enabled_setup(char *str)
 {
 	unsigned long enabled;
 	if (!strict_strtoul(str, 0, &enabled))
+#if defined(SELINUX_ALWAYS_ENFORCE) || \
+	defined(SELINUX_DEFAULT_ENFORCE) || \
+    defined(SELINUX_ALWAYS_PERMISSIVE) || \
+	defined(SELINUX_DEFAULT_PERMISSIVE)
+		selinux_enabled = 1;
+#else
 		selinux_enabled = enabled ? 1 : 0;
+#endif
 	return 1;
 }
 __setup("selinux=", selinux_enabled_setup);
@@ -5139,7 +5154,19 @@ static int selinux_nlmsg_perm(struct sock *sk, struct sk_buff *skb)
 				  "SELinux:  unrecognized netlink message"
 				  " type=%hu for sclass=%hu\n",
 				  nlh->nlmsg_type, sksec->sclass);
+#if defined(SELINUX_ALWAYS_ENFORCE)
+			if (security_get_allow_unknown())
+#elif defined(SELINUX_ALWAYS_PERMISSIVE)
+			/*
+			 * - selinux_enforcing = 0, because of permissive
+			 * - !selinux_enforcing would result in 1
+			 *
+			 * means the if would be completley useless
+			 */
+			// if (!selinux_enforcing || security_get_allow_unknown())
+#else
 			if (!selinux_enforcing || security_get_allow_unknown())
+#endif
 				err = 0;
 		}
 
@@ -6457,7 +6484,12 @@ static struct security_operations selinux_ops = {
 static __init int selinux_init(void)
 {
 	if (!security_module_enable(&selinux_ops)) {
+#if defined(SELINUX_ALWAYS_ENFORCE) || \
+	defined(SELINUX_ALWAYS_PERMISSIVE)
+		selinux_enabled = 1;	
+#else
 		selinux_enabled = 0;
+#endif
 		return 0;
 	}
 
@@ -6480,6 +6512,12 @@ static __init int selinux_init(void)
 
 	if (register_security(&selinux_ops))
 		panic("SELinux: Unable to register with kernel.\n");
+
+#if defined(SELINUX_ALWAYS_ENFORCE)
+	selinux_enforcing = 1;
+#elif defined(SELINUX_ALWAYS_PERMISSIVE)
+	selinux_enforcing = 0;
+#endif
 	if (selinux_enforcing)
 		printk(KERN_DEBUG "SELinux:  Starting in enforcing mode\n");
 	else
@@ -6556,6 +6594,10 @@ static struct nf_hook_ops selinux_ipv6_ops[] = {
 static int __init selinux_nf_ip_init(void)
 {
 	int err = 0;
+#if defined(SELINUX_ALWAYS_ENFORCE) || \
+	defined(SELINUX_ALWAYS_PERMISSIVE)
+	selinux_enabled = 1;
+#endif
 	if (!selinux_enabled)
 		goto out;
 
